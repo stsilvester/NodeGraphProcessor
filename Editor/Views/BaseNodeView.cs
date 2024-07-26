@@ -109,7 +109,9 @@ namespace GraphProcessor
 			RegisterCallback<GeometryChangedEvent>(OnGeometryChanged);
 			RegisterCallback<DetachFromPanelEvent>(e => ExceptionToLog.Call(Disable));
 			OnGeometryChanged(null);
-		}
+
+            OnInitialized();
+        }
 
 		void InitializePorts()
 		{
@@ -652,7 +654,9 @@ namespace GraphProcessor
 		public virtual void Enable(bool fromInspector = false) => DrawDefaultInspector(fromInspector);
 		public virtual void Enable() => DrawDefaultInspector(false);
 
-		public virtual void Disable() {}
+        protected virtual void OnInitialized() { }
+
+        public virtual void Disable() {}
 
 		Dictionary<string, List<(object value, VisualElement target)>> visibleConditions = new Dictionary<string, List<(object value, VisualElement target)>>();
 		Dictionary<string, VisualElement>  hideElementIfConnected = new Dictionary<string, VisualElement>();
