@@ -654,7 +654,7 @@ namespace GraphProcessor
 		public virtual void Enable(bool fromInspector = false) => DrawDefaultInspector(fromInspector);
 		public virtual void Enable() => DrawDefaultInspector(false);
 
-        protected virtual void OnInitialized() { }
+        public virtual void OnInitialized() { }
 
         public virtual void Disable() {}
 
