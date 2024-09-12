@@ -145,8 +145,6 @@ namespace GraphProcessor
 
                     adapters.Add(item, convertionFunction);
                     adapters[item] = convertionFunction;
-                    var pathString = string.Join(" -> ", path.Select(t => t.Name));
-                    Debug.Log($"Shortcut convertion method from {origin} to {destinaiton} is created, path: {pathString}");
                 }
                 else
                 {
