@@ -20,6 +20,8 @@ namespace GraphProcessor
     public abstract class ITypeAdapter // TODO: turn this back into an interface when we have C# 8
     {
         public virtual IEnumerable<(Type, Type)> GetIncompatibleTypes() { yield break; }
+
+        public virtual IEnumerable<(Type from, Type to)> ShortCutRequired() { yield break; }
     }
 
     public static class TypeAdapter
@@ -27,6 +29,7 @@ namespace GraphProcessor
         static Dictionary< (Type from, Type to), Func<object, object> > adapters = new Dictionary< (Type, Type), Func<object, object> >();
         static Dictionary< (Type from, Type to), MethodInfo > adapterMethods = new Dictionary< (Type, Type), MethodInfo >();
         static List< (Type from, Type to)> incompatibleTypes = new List<( Type from, Type to) >();
+        static HashSet<(Type from, Type to)> shortCuts = new HashSet<(Type from, Type to)>();
 
         [System.NonSerialized]
         static bool adaptersLoaded = false;
@@ -86,20 +89,68 @@ namespace GraphProcessor
 #else
                             MethodInfo genericHelper = typeof(TypeAdapter).GetMethod("ConvertTypeMethodHelper", 
                                 BindingFlags.Static | BindingFlags.NonPublic);
-                            
+
                             // Now supply the type arguments
                             MethodInfo constructedHelper = genericHelper.MakeGenericMethod(from, to);
 
-                            object ret = constructedHelper.Invoke(null, new object[] {method});
-                            var r = (Func<object, object>) ret;
+                            object ret = constructedHelper.Invoke(null, new object[] { method });
+                            var r = (Func<object, object>)ret;
 #endif
-
-                            adapters.Add((method.GetParameters()[0].ParameterType, method.ReturnType), r);
-                            adapterMethods.Add((method.GetParameters()[0].ParameterType, method.ReturnType), method);
-                        } catch (Exception e) {
+                            var fromType = method.GetParameters()[0].ParameterType;
+                            var toType = method.ReturnType;
+                            var tuple = (fromType, toType);
+                            adapters.Add(tuple, r);
+                            adapterMethods.Add(tuple, method);
+                        }
+                        catch (Exception e)
+                        {
                             Debug.LogError($"Failed to load the type convertion method: {method}\n{e}");
                         }
                     }
+
+                    if (adapter != null)
+                    {
+                        foreach (var item in adapter.ShortCutRequired())
+                        {
+                            shortCuts.Add(item);
+                            shortCuts.Add((item.to, item.from));
+                        }
+                    }
+                }
+            }
+
+            foreach (var item in shortCuts)
+            {
+                if (adapters.ContainsKey(item))
+                    continue;
+
+                var origin = item.from;
+                var destinaiton = item.to;
+                var edges = adapters.Keys;
+                //TODO: findpath could also find other shortcutrequired in proecess to improve performance
+                var path = FindPath(edges, origin, destinaiton);
+
+                if (path?.Any() == true)
+                {
+                    //compress convertion method from path (from, to) into one method, but this way is somehow bad for performance
+                    Func<object, object> convertionFunction = (object from) =>
+                    {
+                        object current = from;
+                        foreach (var type in path.Skip(1))
+                        {
+                            current = Convert(current, type);
+                        }
+                        return current;
+                    };
+
+                    adapters.Add(item, convertionFunction);
+                    adapters[item] = convertionFunction;
+                    var pathString = string.Join(" -> ", path.Select(t => t.Name));
+                    Debug.Log($"Shortcut convertion method from {origin} to {destinaiton} is created, path: {pathString}");
+                }
+                else
+                {
+                    Debug.LogError($"Missing convertion method. There is no way to convert {origin} to {destinaiton}");
                 }
             }
 
@@ -112,6 +163,41 @@ namespace GraphProcessor
             }
 
             adaptersLoaded = true;
+        }
+
+        public static List<Type> FindPath(IEnumerable<(Type from, Type to)> edges, Type origin, Type destination)
+        {
+            Queue<List<Type>> queue = new Queue<List<Type>>();
+            HashSet<Type> visited = new HashSet<Type>();
+
+            queue.Enqueue(new List<Type> { origin });
+            visited.Add(origin);
+
+            while (queue.Count > 0)
+            {
+                List<Type> path = queue.Dequeue();
+                Type currentType = path.Last();
+
+                // return if we found the destination
+                if (currentType == destination)
+                    return path;
+
+                // find all the neighbors of the current type
+                foreach (var (from, to) in edges)
+                {
+                    if (from == currentType && !visited.Contains(to))
+                    {
+                        List<Type> newPath = new List<Type>(path);
+                        newPath.Add(to);
+
+                        queue.Enqueue(newPath);
+                        visited.Add(to);
+                    }
+                }
+            }
+
+            // return null if there is no path
+            return null;
         }
 
         public static bool AreIncompatible(Type from, Type to)
@@ -131,6 +217,10 @@ namespace GraphProcessor
 
             return adapters.ContainsKey((from, to));
         }
+
+        public static bool IsShortCut(Type from, Type to) => shortCuts.Contains((from, to));
+
+        public static Func<object, object> GetConvertionDelegate(Type from , Type to) => adapters[(from, to)];
 
         public static MethodInfo GetConvertionMethod(Type from, Type to) => adapterMethods[(from, to)];
 

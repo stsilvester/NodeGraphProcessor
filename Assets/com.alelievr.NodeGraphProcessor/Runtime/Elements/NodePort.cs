@@ -212,10 +212,20 @@ namespace GraphProcessor
 				{
 					// We add a cast in case there we're calling the conversion method with a base class parameter (like object)
 					var convertedParam = Expression.Convert(outputParamField, outType);
-					outputParamField = Expression.Call(TypeAdapter.GetConvertionMethod(outType, inType), convertedParam);
-					// In case there is a custom port behavior in the output, then we need to re-cast to the base type because
-					// the convertion method return type is not always assignable directly:
-					outputParamField = Expression.Convert(outputParamField, inputField.FieldType);
+					if (TypeAdapter.IsShortCut(outType, inType))
+					{
+                        convertedParam = Expression.Convert(convertedParam, typeof(object));
+						var del = Expression.Constant(TypeAdapter.GetConvertionDelegate(outType, inType));
+                        outputParamField = Expression.Invoke(del, convertedParam);
+						outputParamField = Expression.Convert(outputParamField, inputField.FieldType);
+                    }
+					else
+					{
+	                    outputParamField = Expression.Call(TypeAdapter.GetConvertionMethod(outType, inType), convertedParam);
+                    }
+                    // In case there is a custom port behavior in the output, then we need to re-cast to the base type because
+                    // the convertion method return type is not always assignable directly:
+                    outputParamField = Expression.Convert(outputParamField, inputField.FieldType);
 				}
 				else // otherwise we cast
 					outputParamField = Expression.Convert(outputParamField, inputField.FieldType);
