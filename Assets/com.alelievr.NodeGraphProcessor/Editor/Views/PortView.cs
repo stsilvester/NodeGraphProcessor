@@ -5,6 +5,7 @@ using UnityEditor.Experimental.GraphView;
 using UnityEngine.UIElements;
 using System;
 using System.Reflection;
+using System.Linq;
 
 namespace GraphProcessor
 {
@@ -39,7 +40,11 @@ namespace GraphProcessor
 			this.portData = portData;
 			this.portName = fieldName;
 
-			styleSheets.Add(Resources.Load<StyleSheet>(portStyle));
+			var portStyleAttribute = fieldInfo.GetCustomAttribute<PortStyleAttribute>();
+            if (portStyleAttribute != null)
+                portStyle = portStyleAttribute.PortStyle;
+
+            styleSheets.Add(Resources.Load<StyleSheet>(portStyle));
 
 			UpdatePortSize();
 
@@ -99,9 +104,13 @@ namespace GraphProcessor
 		{
 			this.owner = nodeView;
 			AddToClassList(fieldName);
+			// add class to class list from AddClassAttribute of field info
+            fieldInfo.GetCustomAttributes<AddClassAttribute>(true)
+				.SelectMany(a => a.ClassList).Distinct().ToList()
+				.ForEach(AddToClassList);
 
-			// Correct port type if port accept multiple values (and so is a container)
-			if (direction == Direction.Input && portData.acceptMultipleEdges && portType == fieldType) // If the user haven't set a custom field type
+            // Correct port type if port accept multiple values (and so is a container)
+            if (direction == Direction.Input && portData.acceptMultipleEdges && portType == fieldType) // If the user haven't set a custom field type
 			{
 				if (fieldType.GetGenericArguments().Length > 0)
 					portType = fieldType.GetGenericArguments()[0];
