@@ -19,9 +19,22 @@ namespace GraphProcessor
     /// </summary>
     public abstract class ITypeAdapter // TODO: turn this back into an interface when we have C# 8
     {
+        /// <summary>
+        /// 列舉所有不可互相轉換的型別
+        /// </summary>
+        /// <returns></returns>
         public virtual IEnumerable<(Type, Type)> GetIncompatibleTypes() { yield break; }
 
+        /// <summary>
+        /// 列舉所有需要快速轉換的型別
+        /// </summary>
+        /// <returns></returns>
         public virtual IEnumerable<(Type from, Type to)> ShortCutRequired() { yield break; }
+
+        /// <summary>
+        /// 列舉所有可轉換的型別
+        /// </summary>
+        public virtual IEnumerable<(Type from, Type[] assignables)> Assignables() { yield break; }
     }
 
     public static class TypeAdapter
@@ -29,7 +42,8 @@ namespace GraphProcessor
         static Dictionary< (Type from, Type to), Func<object, object> > adapters = new Dictionary< (Type, Type), Func<object, object> >();
         static Dictionary< (Type from, Type to), MethodInfo > adapterMethods = new Dictionary< (Type, Type), MethodInfo >();
         static List< (Type from, Type to)> incompatibleTypes = new List<( Type from, Type to) >();
-        static HashSet<(Type from, Type to)> shortCuts = new HashSet<(Type from, Type to)>();
+        static HashSet<(Type from, Type to)> dynamicAdapters = new HashSet<(Type from, Type to)>();
+        static HashSet<(Type from, Type to)> assignables = new HashSet<(Type from, Type to)>();
 
         [System.NonSerialized]
         static bool adaptersLoaded = false;
@@ -112,14 +126,20 @@ namespace GraphProcessor
                     {
                         foreach (var item in adapter.ShortCutRequired())
                         {
-                            shortCuts.Add(item);
-                            shortCuts.Add((item.to, item.from));
+                            dynamicAdapters.Add(item);
+                            dynamicAdapters.Add((item.to, item.from));
+                        }
+
+                        foreach (var item in adapter.Assignables())
+                        {
+                            foreach (var to in item.assignables.Where(to => to.IsAssignableFrom(item.from)))
+                                assignables.Add((item.from, to));
                         }
                     }
                 }
             }
 
-            foreach (var item in shortCuts)
+            foreach (var item in dynamicAdapters)
             {
                 if (adapters.ContainsKey(item))
                     continue;
@@ -158,6 +178,15 @@ namespace GraphProcessor
             {
                 if (!adapters.ContainsKey((kp.Key.to, kp.Key.from)))
                     Debug.LogError($"Missing convertion method. There is one for {kp.Key.from} to {kp.Key.to} but not for {kp.Key.to} to {kp.Key.from}");
+            }
+
+            // register type adaptors from type to assignable types
+            // ex: Camera to Component, Unity.Object
+            // and this is one way convertion, so we pass the ensurance of both ways convertion
+            foreach (var i in assignables.Except(adapters.Keys).ToArray())
+            {
+                dynamicAdapters.Add(i);
+                adapters.Add(i, (object o) => o);
             }
 
             adaptersLoaded = true;
@@ -216,7 +245,7 @@ namespace GraphProcessor
             return adapters.ContainsKey((from, to));
         }
 
-        public static bool IsShortCut(Type from, Type to) => shortCuts.Contains((from, to));
+        public static bool IsShortCut(Type from, Type to) => dynamicAdapters.Contains((from, to));
 
         public static Func<object, object> GetConvertionDelegate(Type from , Type to) => adapters[(from, to)];
 
